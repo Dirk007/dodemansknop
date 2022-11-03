@@ -1,13 +1,14 @@
 use config::{Config, File, ConfigError, Environment};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub notifier_type: String,
+    pub severity: Option<String>,
     pub webhook: Option<WebhookSettings>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct WebhookSettings {
     pub url: String,
 

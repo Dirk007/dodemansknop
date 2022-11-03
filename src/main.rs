@@ -11,7 +11,7 @@ use timer::Guard;
 use warp::Filter;
 
 use crate::config::Settings;
-use crate::notifier::{NoOpNotifier, Notifier};
+use crate::notifier::{NoOpNotifier, Notifier, Alert};
 use crate::notifiers::webhook::WebhookNotifier;
 
 mod notifier;
@@ -37,8 +37,7 @@ fn build_notifier(cfg: &Settings) -> Result<Box<dyn Notifier>, String> {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
 
     let settings = config::retrieve_settings(Some("dodemansknop.json")).unwrap();
@@ -46,9 +45,22 @@ async fn main() {
     info!("loaded settings: {:?}", settings);
 
     let (tx_ping, rx_ping): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(32);
-    let (tx_alert, rx_alert): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (tx_alert, rx_alert): (Sender<Alert>, Receiver<Alert>) = mpsc::channel();
     let notifier = build_notifier(&settings).unwrap();
 
+    run_alerter_thread(rx_alert, notifier);
+    run_ping_receiver_thread(rx_ping, tx_alert, settings.clone());
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            serve_api(tx_ping).await;
+        });
+}
+
+fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier: Box<dyn Notifier>) {
     thread::spawn(move || {
         loop {
             let r = rx_alert.recv();
@@ -57,13 +69,15 @@ async fn main() {
                 continue;
             }
 
-            match notifier.notify_failure(&r.unwrap()) {
+            match notifier.notify_failure(r.unwrap()) {
                 Ok(_) => info!("failure notified"),
                 Err(e) => warn!("error while notifying about failure: {}", e)
             }
         }
     });
+}
 
+fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, settings: Settings) {
     thread::spawn(move || {
         let timer = timer::Timer::new();
         let delay = chrono::Duration::seconds(5);
@@ -81,24 +95,33 @@ async fn main() {
             let idc = id.clone();
 
             let tx_cpy = tx_alert.clone();
+            let severity = settings.severity.clone().unwrap_or("critical".to_string());
 
             debug!("received ping for {}", id);
 
             active_timers.insert(id, timer.schedule_with_delay(delay, move || {
                 info!("missed ping for {}; scheduling alert", idc);
 
-                match tx_cpy.send(idc.clone()) {
+                let alert = Alert{
+                    id: idc.clone(),
+                    severity: severity.clone(),
+                };
+
+                match tx_cpy.send(alert) {
                     Ok(_) => debug!("alert scheduled for {}", idc),
                     Err(e) => warn!("error while scheduling alert: {}", e)
                 }
             }));
         }
     });
+}
 
-    let api = filters::ping(tx_ping);
+async fn serve_api(tx_ping: SyncSender<String>) {
+    let api = filters::routes(tx_ping);
     let routes = api.with(warp::log("ping"));
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    return;
 }
 
 mod filters {
@@ -109,11 +132,21 @@ mod filters {
 
     use super::handlers;
 
+    pub fn routes(tx_ping: SyncSender<String>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+        ping(tx_ping).or(health())
+    }
+
     pub fn ping(ping_tx: SyncSender<String>) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
         warp::path!("ping" / String)
             .and(warp::post())
             .and(with_ping_tx(ping_tx))
             .and_then(handlers::ping)
+    }
+
+    pub fn health() -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+        warp::path!("health")
+            .and(warp::get())
+            .and_then(handlers::health)
     }
 
     fn with_ping_tx(tx: SyncSender<String>) -> impl Filter<Extract=(SyncSender<String>, ), Error=Infallible> + Clone {
@@ -136,5 +169,9 @@ mod handlers {
                 Ok(StatusCode::SERVICE_UNAVAILABLE)
             }
         }
+    }
+
+    pub async fn health() -> Result<impl warp::Reply, Infallible> {
+        Ok(StatusCode::OK)
     }
 }
