@@ -13,10 +13,11 @@ use warp::Filter;
 use crate::config::{NotifierSettings, Settings};
 use crate::notifier::{NoOpNotifier, Notifier, Alert};
 use crate::notifiers::webhook::WebhookNotifier;
+use crate::notifiers::slack::SlackNotifier;
 
 mod notifier;
 
-mod notifiers { pub mod webhook; }
+mod notifiers { pub mod webhook; pub mod slack; }
 
 mod config;
 
@@ -47,6 +48,16 @@ fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>, String> {
                 )),
             ),
             None => Err("no webhook settings found".to_string()),
+        },
+        "slack" => match cfg.slack {
+            Some(ref wh) => Ok(
+                Box::new(SlackNotifier::new(
+                    wh.url.clone(),
+                    wh.icon_emoji.clone(),
+                    wh.color.clone(),
+                )),
+            ),
+            None => Err("no slack settings found".to_string()),
         },
         "noop" => Ok(Box::new(NoOpNotifier {})),
         t => Err(format!("unsupported notifier: {}", t))

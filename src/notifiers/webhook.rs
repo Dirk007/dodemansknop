@@ -1,7 +1,6 @@
 use log::debug;
 use reqwest::blocking::Client;
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::notifier::{Notifier, Alert};

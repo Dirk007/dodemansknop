@@ -13,12 +13,12 @@ pub struct NotifierSettings {
     #[serde(rename="type")]
     pub notifier_type: String,
     pub webhook: Option<WebhookSettings>,
+    pub slack: Option<SlackSettings>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
 pub struct SlackSettings {
     pub url: String,
-    pub channel: String,
-    pub username: String,
     pub icon_emoji: String,
     pub color: String,
 }
