@@ -4,6 +4,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub notifier_type: String,
+    pub timeout: Option<i64>,
     pub severity: Option<String>,
     pub webhook: Option<WebhookSettings>,
 }

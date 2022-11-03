@@ -51,7 +51,12 @@ impl Notifier for WebhookNotifier {
             title: String::from("Dead man switch missed"),
         };
 
-        let rb = self.client.request(method, &self.url).json(&msg);
+        let mut rb = self.client.request(method, &self.url).json(&msg);
+
+        for (header, value) in self.headers.iter() {
+            rb = rb.header(header, value);
+        }
+
         let req = rb.build().unwrap();
 
         debug!("executing request: {:?}", req);

@@ -80,7 +80,7 @@ fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier: Box<dyn Notifier>) {
 fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, settings: Settings) {
     thread::spawn(move || {
         let timer = timer::Timer::new();
-        let delay = chrono::Duration::seconds(5);
+        let delay = chrono::Duration::seconds(settings.timeout.unwrap_or(30));
 
         let mut active_timers: HashMap<String, Guard> = HashMap::new();
 
@@ -97,7 +97,7 @@ fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, 
             let tx_cpy = tx_alert.clone();
             let severity = settings.severity.clone().unwrap_or("critical".to_string());
 
-            debug!("received ping for {}", id);
+            debug!("received ping for {}; timeout is {}", id, delay);
 
             active_timers.insert(id, timer.schedule_with_delay(delay, move || {
                 info!("missed ping for {}; scheduling alert", idc);
