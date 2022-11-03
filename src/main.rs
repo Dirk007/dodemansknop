@@ -10,7 +10,7 @@ use log::{debug, info, warn};
 use timer::Guard;
 use warp::Filter;
 
-use crate::config::Settings;
+use crate::config::{NotifierSettings, Settings};
 use crate::notifier::{NoOpNotifier, Notifier, Alert};
 use crate::notifiers::webhook::WebhookNotifier;
 
@@ -20,13 +20,29 @@ mod notifiers { pub mod webhook; }
 
 mod config;
 
-fn build_notifier(cfg: &Settings) -> Result<Box<dyn Notifier>, String> {
+fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> {
+    let mut notifiers: Vec<Box<dyn Notifier>> = Vec::new();
+
+    for notifier_setting in cfx.notifiers.iter() {
+        match build_notifier(notifier_setting) {
+            Ok(notifier) => notifiers.push(notifier),
+            Err(e) => {
+                return Err(format!("failed to build notifier: {}", e))
+            },
+        }
+    }
+
+    Ok(notifiers)
+}
+
+fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>, String> {
     match cfg.notifier_type.as_str() {
         "webhook" => match cfg.webhook {
             Some(ref wh) => Ok(
                 Box::new(WebhookNotifier::new(
                     wh.url.clone(),
                     wh.method.clone(),
+                    wh.body.clone(),
                     wh.headers.clone().unwrap_or(vec![])
                 )),
             ),
@@ -40,15 +56,15 @@ fn build_notifier(cfg: &Settings) -> Result<Box<dyn Notifier>, String> {
 fn main() {
     env_logger::init();
 
-    let settings = config::retrieve_settings(Some("dodemansknop.json")).unwrap();
+    let settings = config::retrieve_settings(Some("dodemansknop.yaml")).unwrap();
 
     info!("loaded settings: {:?}", settings);
 
     let (tx_ping, rx_ping): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(32);
     let (tx_alert, rx_alert): (Sender<Alert>, Receiver<Alert>) = mpsc::channel();
-    let notifier = build_notifier(&settings).unwrap();
+    let notifier_set = build_notifier_set(&settings).unwrap();
 
-    run_alerter_thread(rx_alert, notifier);
+    run_alerter_thread(rx_alert, notifier_set);
     run_ping_receiver_thread(rx_ping, tx_alert, settings.clone());
 
     tokio::runtime::Builder::new_multi_thread()
@@ -60,7 +76,7 @@ fn main() {
         });
 }
 
-fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier: Box<dyn Notifier>) {
+fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notifier>>) {
     thread::spawn(move || {
         loop {
             let r = rx_alert.recv();
@@ -69,9 +85,13 @@ fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier: Box<dyn Notifier>) {
                 continue;
             }
 
-            match notifier.notify_failure(r.unwrap()) {
-                Ok(_) => info!("failure notified"),
-                Err(e) => warn!("error while notifying about failure: {}", e)
+            let alert = r.unwrap();
+
+            for notifier in notifier_set.iter() {
+                match notifier.notify_failure(alert.clone()) {
+                    Ok(_) => info!("failure notified"),
+                    Err(e) => warn!("error while notifying about failure: {}", e)
+                }
             }
         }
     });
@@ -95,7 +115,6 @@ fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, 
             let idc = id.clone();
 
             let tx_cpy = tx_alert.clone();
-            let severity = settings.severity.clone().unwrap_or("critical".to_string());
 
             debug!("received ping for {}; timeout is {}", id, delay);
 
@@ -104,7 +123,6 @@ fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, 
 
                 let alert = Alert{
                     id: idc.clone(),
-                    severity: severity.clone(),
                 };
 
                 match tx_cpy.send(alert) {

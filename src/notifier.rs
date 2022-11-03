@@ -1,6 +1,6 @@
+#[derive(Clone)]
 pub struct Alert {
     pub id: String,
-    pub severity: String,
 }
 
 pub trait Notifier: Send {

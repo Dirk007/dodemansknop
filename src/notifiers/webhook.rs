@@ -2,6 +2,7 @@ use log::debug;
 use reqwest::blocking::Client;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::notifier::{Notifier, Alert};
 
@@ -9,25 +10,18 @@ use crate::notifier::{Notifier, Alert};
 pub struct WebhookNotifier {
     url: String,
     method: String,
+    body: Option<Value>,
     headers: Vec<(String, String)>,
 
     client: Client,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct WebhookMessage {
-    id: String,
-    service: String,
-    severity: String,
-    title: String,
-    message: String,
-}
-
 impl WebhookNotifier {
-    pub fn new(url: String, method: String, headers: Vec<(String, String)>) -> Self {
+    pub fn new(url: String, method: String, body: Option<Value>, headers: Vec<(String, String)>) -> Self {
         Self {
             url,
             method,
+            body,
             headers,
             client: Client::new(),
         }
@@ -43,13 +37,10 @@ impl Notifier for WebhookNotifier {
             _ => Method::GET,
         };
 
-        let msg = WebhookMessage{
-            id: alert.id.clone(),
-            message: format!("service {} missed its dead-man-switch", alert.id),
-            service: alert.id.clone(),
-            severity: alert.severity,
-            title: String::from("Dead man switch missed"),
-        };
+        let mut msg = self.body.clone().unwrap_or(json!({}));
+
+        msg["id"] = json!(alert.id.clone());
+        msg["message"] = json!(format!("service {} missed its dead mans switch", alert.id));
 
         let mut rb = self.client.request(method, &self.url).json(&msg);
 
@@ -63,8 +54,6 @@ impl Notifier for WebhookNotifier {
 
         let res = self.client.execute(req);
         debug!("response: {:?}", res);
-
-        debug!("yay");
 
         Ok(())
     }

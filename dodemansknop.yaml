@@ -1,0 +1,17 @@
+notifiers:
+  - type: webhook
+    webhook:
+      url: "https://ptsv2.com/t/0r553-1667496804/post"
+      method: POST
+      body:
+        severity: critical
+      headers:
+        - [X-Foo, bar]
+  - type: slack
+    slack:
+      url: "https://ptsv2.com/t/0r553-1667496804/post"
+      channel: "#dodemansknop"
+      username: "Dodemansknop"
+      icon_emoji: ":dizzy_face:"
+      color: "#ff0000"
+timeout: 5

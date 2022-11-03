@@ -1,12 +1,26 @@
 use config::{Config, File, ConfigError, Environment};
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
-    pub notifier_type: String,
+    pub notifiers: Vec<NotifierSettings>,
     pub timeout: Option<i64>,
-    pub severity: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct NotifierSettings {
+    #[serde(rename="type")]
+    pub notifier_type: String,
     pub webhook: Option<WebhookSettings>,
+}
+
+pub struct SlackSettings {
+    pub url: String,
+    pub channel: String,
+    pub username: String,
+    pub icon_emoji: String,
+    pub color: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -16,6 +30,7 @@ pub struct WebhookSettings {
     #[serde(default = "default_method")]
     pub method: String,
 
+    pub body: Option<Value>,
     pub headers: Option<Vec<(String, String)>>,
 }
 
