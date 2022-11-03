@@ -1,0 +1,31 @@
+notifiers:
+  - type: webhook
+    webhook:
+      # "url" and "method" are the HTTP URL and method.
+      url: "https://..."
+      method: POST
+
+      # "body" may contain an arbitrary JSON structure.
+      # Dodemansknop will extend the JSON structure with a generated "id" and
+      # "message" field.
+      body:
+        severity: critical
+
+      # "headers" may contain a list of additional request headers that should
+      # be sent with the webhook request.
+      headers:
+        - [X-Foo, bar]
+
+  - type: slack
+    slack:
+      # "url" is the URL if a Slack Incoming Webhook
+      url: "https://..."
+
+      # "icon_emoji" is a Slack emoji code that will be used to decorate the
+      # Slack message.
+      icon_emoji: ":dizzy_face:"
+
+      # "color" is an HTML color code with which the Slack message should be
+      # decorated.
+      color: "#ff0000"
+timeout: 5
