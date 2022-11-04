@@ -38,11 +38,11 @@ fn default_method() -> String {
     "POST".to_string()
 }
 
-pub fn retrieve_settings(file: Option<&str>) -> Result<Settings, ConfigError> {
+pub fn retrieve_settings(file: Option<String>) -> Result<Settings, ConfigError> {
     let mut b = Config::builder();
 
     if file.is_some() {
-        b = b.add_source(File::with_name(file.unwrap()));
+        b = b.add_source(File::with_name(file.unwrap().as_str()));
     }
 
     b = b.add_source(Environment::with_prefix("DODEMANSKNOP").separator("_"));

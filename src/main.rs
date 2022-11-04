@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, SyncSender, Sender};
 use std::sync::{mpsc};
 use std::thread;
+use clap::Parser;
 
 use log::{debug, info, warn};
 use timer::Guard;
@@ -20,6 +21,14 @@ mod notifier;
 mod notifiers { pub mod webhook; pub mod slack; }
 
 mod config;
+
+#[derive(Parser, Default, Debug)]
+#[command(author = "Martin Helmich <m.helmich@mittwald.de", version, about="A simple dead mans switch")]
+struct Arguments {
+    #[arg(short, long="config")]
+    /// Path to the configuration file
+    config_file: Option<String>,
+}
 
 fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> {
     let mut notifiers: Vec<Box<dyn Notifier>> = Vec::new();
@@ -67,7 +76,8 @@ fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>, String> {
 fn main() {
     env_logger::init();
 
-    let settings = config::retrieve_settings(Some("dodemansknop.yaml")).unwrap();
+    let args = Arguments::parse();
+    let settings = config::retrieve_settings(args.config_file).unwrap();
 
     info!("loaded settings: {:?}", settings);
 

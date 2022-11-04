@@ -6,4 +6,6 @@ RUN cargo build -r
 
 FROM debian:bullseye-slim
 COPY --from=builder /usr/src/dodemansknop/target/release/dodemansknop /usr/local/bin/dodemansknop
-CMD ["/usr/local/bin/dodemansknop"]
+
+ENTRYPOINT ["/usr/local/bin/dodemansknop"]
+CMD ["--config", "/etc/dodemansknop/config.yaml"]
