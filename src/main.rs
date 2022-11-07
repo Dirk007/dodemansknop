@@ -2,6 +2,7 @@ extern crate chrono;
 extern crate timer;
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, SyncSender, Sender};
 use std::sync::{mpsc};
 use std::thread;
@@ -28,6 +29,10 @@ struct Arguments {
     #[arg(short, long="config")]
     /// Path to the configuration file
     config_file: Option<String>,
+
+    #[arg(short, long)]
+    /// Address to bind to
+    listen_addr: Option<String>,
 }
 
 fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> {
@@ -93,7 +98,7 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async move {
-            serve_api(tx_ping).await;
+            serve_api(args.listen_addr.unwrap_or(String::from("0.0.0.0:3030")), tx_ping).await;
         });
 }
 
@@ -155,11 +160,13 @@ fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, 
     });
 }
 
-async fn serve_api(tx_ping: SyncSender<String>) {
+async fn serve_api(listen_addr: String, tx_ping: SyncSender<String>) {
     let api = filters::routes(tx_ping);
     let routes = api.with(warp::log("ping"));
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    let addr: SocketAddr = listen_addr.parse().unwrap();
+
+    warp::serve(routes).run(addr).await;
     return;
 }
 
