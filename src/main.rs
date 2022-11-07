@@ -24,7 +24,7 @@ mod notifiers { pub mod webhook; pub mod slack; }
 mod config;
 
 #[derive(Parser, Default, Debug)]
-#[command(author = "Martin Helmich <m.helmich@mittwald.de", version, about="A simple dead mans switch")]
+#[command(author = "Martin Helmich <m.helmich@mittwald.de>", version, about="A simple dead mans switch")]
 struct Arguments {
     #[arg(short, long="config")]
     /// Path to the configuration file
