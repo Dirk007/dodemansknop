@@ -1,6 +1,8 @@
 # Dodemansknop
 
-"Dodemansknop" is 🇳🇱 Dutch 🇳🇱 for "dead man's switch". It is a simple tool to implement such a dead mans switch in your infrastructure with common tools like Prometheus and Alertmanager.
+[![Rust Build & Test](https://github.com/mittwald/dodemansknop/actions/workflows/rust.yml/badge.svg)](https://github.com/mittwald/dodemansknop/actions/workflows/rust.yml)
+
+"Dodemansknop" is 🇳🇱 Dutch 🇳🇱 for "dead man's switch". It is a simple tool to implement such a dead man's switch in your infrastructure with common tools like Prometheus and Alertmanager.
 
 ## Supported alerting targets
 
