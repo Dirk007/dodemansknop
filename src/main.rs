@@ -47,7 +47,7 @@ fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>> {
     let mut notifiers: Vec<Box<dyn Notifier>> = Vec::with_capacity(cfx.notifiers.len());
 
     for notifier_setting in cfx.notifiers.iter() {
-        build_notifier(notifier_setting).with_context(|| format!("failed to build notifier:  {:?}", notifier_setting))?;
+        notifiers.push(build_notifier(notifier_setting).with_context(|| format!("failed to build notifier:  {:?}", notifier_setting))?);
     }
 
     Ok(notifiers)
