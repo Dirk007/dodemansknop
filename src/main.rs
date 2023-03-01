@@ -5,11 +5,11 @@ use std::{
         mpsc,
         mpsc::{Receiver, Sender, SyncSender},
     },
-    thread,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
+use futures::stream::{FuturesUnordered, StreamExt};
 use log::{debug, info, warn};
 use timer::Guard;
 use warp::Filter;
@@ -77,7 +77,8 @@ fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>> {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "multi_thread", worker_threads = 16)]
+async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init()
         .ok();
@@ -87,33 +88,28 @@ fn main() -> Result<()> {
 
     info!("loaded settings: {:?}", settings);
 
-    let (tx_ping, rx_ping): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(32);
-    let (tx_alert, rx_alert): (Sender<Alert>, Receiver<Alert>) = mpsc::channel();
+    let (tx_ping, rx_ping) = mpsc::sync_channel::<String>(32);
+    let (tx_alert, rx_alert) = mpsc::channel::<Alert>();
     let notifier_set = build_notifier_set(&settings)?;
 
-    run_alerter_thread(rx_alert, notifier_set);
-    run_ping_receiver_thread(rx_ping, tx_alert, settings.clone());
+    let mut tasks: FuturesUnordered<tokio::task::JoinHandle<Result<()>>> = FuturesUnordered::new();
+    tasks.push(tokio::spawn(run_alerter_thread(rx_alert, notifier_set)));
+    tasks.push(tokio::spawn(run_ping_receiver_thread(rx_ping, tx_alert, settings.clone())));
+    tasks.push(tokio::spawn(serve_api(
+        args.listen_addr.unwrap_or(String::from("0.0.0.0:3030")),
+        tx_ping,
+    )));
 
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async move {
-            serve_api(args.listen_addr.unwrap_or(String::from("0.0.0.0:3030")), tx_ping).await;
-        });
+    // FTR: This spins up all tasks. If one of the tasks dies (errors) then we just want to exit.
+    let died = tasks.next().await;
+    log::error!("One of the tasks died {:?}. Exiting.", died);
 
     Ok(())
 }
 
-fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notifier>>) {
-    thread::spawn(move || loop {
-        let r = rx_alert.recv();
-        if r.is_err() {
-            warn!("error while receiving alert: {}", r.err().unwrap());
-            continue;
-        }
-
-        let alert = r.unwrap();
+async fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notifier>>) -> Result<()> {
+    loop {
+        let alert = rx_alert.recv()?;
 
         for notifier in notifier_set.iter() {
             match notifier.notify_failure(alert.clone()) {
@@ -121,53 +117,47 @@ fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notif
                 Err(e) => warn!("error while notifying about failure: {}", e),
             }
         }
-    });
+    }
 }
 
-fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, settings: Settings) {
-    thread::spawn(move || {
-        let timer = timer::Timer::new();
-        let delay = chrono::Duration::seconds(settings.timeout.unwrap_or(30));
+async fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, settings: Settings) -> Result<()> {
+    let timer = timer::Timer::new();
+    let delay = chrono::Duration::seconds(settings.timeout.unwrap_or_else(|| 30));
 
-        let mut active_timers: HashMap<String, Guard> = HashMap::new();
+    let mut active_timers: HashMap<String, Guard> = HashMap::new();
 
-        loop {
-            let r = rx_ping.recv();
-            if r.is_err() {
-                warn!("error while receiving ping: {}", r.err().unwrap());
-                continue;
-            }
+    loop {
+        let id = rx_ping.recv()?;
 
-            let id = r.unwrap();
-            let idc = id.clone();
+        let idc = id.clone();
 
-            let tx_cpy = tx_alert.clone();
+        let tx_cpy = tx_alert.clone();
 
-            debug!("received ping for {}; timeout is {}", id, delay);
+        debug!("received ping for {}; timeout is {}", id, delay);
 
-            active_timers.insert(
-                id,
-                timer.schedule_with_delay(delay, move || {
-                    info!("missed ping for {}; scheduling alert", idc);
+        active_timers.insert(
+            id,
+            timer.schedule_with_delay(delay, move || {
+                info!("missed ping for {}; scheduling alert", idc);
 
-                    let alert = Alert { id: idc.clone() };
+                let alert = Alert { id: idc.clone() };
 
-                    match tx_cpy.send(alert) {
-                        Ok(_) => debug!("alert scheduled for {}", idc),
-                        Err(e) => warn!("error while scheduling alert: {}", e),
-                    }
-                }),
-            );
-        }
-    });
+                match tx_cpy.send(alert) {
+                    Ok(_) => debug!("alert scheduled for {}", idc),
+                    Err(e) => warn!("error while scheduling alert: {}", e),
+                }
+            }),
+        );
+    }
 }
 
-async fn serve_api(listen_addr: String, tx_ping: SyncSender<String>) {
+async fn serve_api(listen_addr: String, tx_ping: SyncSender<String>) -> Result<()> {
     let api = filters::routes(tx_ping);
     let routes = api.with(warp::log("ping"));
 
-    let addr: SocketAddr = listen_addr.parse().unwrap();
+    let addr: SocketAddr = listen_addr.parse()?;
 
     warp::serve(routes).run(addr).await;
-    return;
+
+    Ok(())
 }
