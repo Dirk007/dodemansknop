@@ -1,9 +1,9 @@
+use anyhow::Result;
 use log::debug;
-use reqwest::blocking::Client;
-use reqwest::Method;
+use reqwest::{blocking::Client, Method};
 use serde_json::{json, Value};
 
-use crate::notifier::{Notifier, Alert};
+use crate::notifier::{Alert, Notifier};
 
 #[derive(Clone)]
 pub struct WebhookNotifier {
@@ -16,10 +16,10 @@ pub struct WebhookNotifier {
 }
 
 impl WebhookNotifier {
-    pub fn new(url: String, method: String, body: Option<Value>, headers: Vec<(String, String)>) -> Self {
+    pub fn new(url: String, method: impl AsRef<str>, body: Option<Value>, headers: Vec<(String, String)>) -> Self {
         Self {
             url,
-            method,
+            method: method.as_ref().to_uppercase(),
             body,
             headers,
             client: Client::new(),
@@ -28,13 +28,8 @@ impl WebhookNotifier {
 }
 
 impl Notifier for WebhookNotifier {
-    fn notify_failure(&self, alert: Alert) -> Result<(), &'static str> {
-        let method = match self.method.to_lowercase().as_str() {
-            "get" => Method::GET,
-            "post" => Method::POST,
-            "put" => Method::PUT,
-            _ => Method::GET,
-        };
+    fn notify_failure(&self, alert: Alert) -> Result<()> {
+        let method: Method = self.method.as_str().try_into().unwrap_or_else(|_| Method::GET);
 
         let mut msg = self.body.clone().unwrap_or(json!({}));
 
@@ -47,7 +42,7 @@ impl Notifier for WebhookNotifier {
             rb = rb.header(header, value);
         }
 
-        let req = rb.build().unwrap();
+        let req = rb.build()?;
 
         debug!("executing request: {:?}", req);
 

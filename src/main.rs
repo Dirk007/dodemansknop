@@ -1,6 +1,3 @@
-extern crate chrono;
-extern crate timer;
-
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -11,6 +8,7 @@ use std::{
     thread,
 };
 
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use log::{debug, info, warn};
 use timer::Guard;
@@ -43,54 +41,53 @@ struct Arguments {
     listen_addr: Option<String>,
 }
 
-fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> {
-    let mut notifiers: Vec<Box<dyn Notifier>> = Vec::new();
+fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>> {
+    let mut notifiers: Vec<Box<dyn Notifier>> = Vec::with_capacity(cfx.notifiers.len());
 
     for notifier_setting in cfx.notifiers.iter() {
-        match build_notifier(notifier_setting) {
-            Ok(notifier) => notifiers.push(notifier),
-            Err(e) => return Err(format!("failed to build notifier: {}", e)),
-        }
+        build_notifier(notifier_setting).with_context(|| format!("failed to build notifier:  {:?}", notifier_setting))?;
     }
 
     Ok(notifiers)
 }
 
-fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>, String> {
+fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>> {
     match cfg.notifier_type.as_str() {
-        "webhook" => match cfg.webhook {
-            Some(ref wh) => Ok(Box::new(WebhookNotifier::new(
+        "webhook" => {
+            let wh = cfg.webhook.as_ref().ok_or_else(|| anyhow!("no webhook settings found"))?;
+            Ok(Box::new(WebhookNotifier::new(
                 wh.url.clone(),
                 wh.method.clone(),
                 wh.body.clone(),
                 wh.headers.clone().unwrap_or(vec![]),
-            ))),
-            None => Err("no webhook settings found".to_string()),
-        },
-        "slack" => match cfg.slack {
-            Some(ref wh) => Ok(Box::new(SlackNotifier::new(
+            )))
+        }
+        "slack" => {
+            let wh = cfg.slack.as_ref().ok_or_else(|| anyhow!("no slack settings found"))?;
+            Ok(Box::new(SlackNotifier::new(
                 wh.url.clone(),
                 wh.icon_emoji.clone(),
                 wh.color.clone(),
-            ))),
-            None => Err("no slack settings found".to_string()),
-        },
+            )))
+        }
         "noop" => Ok(Box::new(NoOpNotifier {})),
-        t => Err(format!("unsupported notifier: {}", t)),
+        _ => bail!("unknown notifier type: {}", cfg.notifier_type),
     }
 }
 
-fn main() {
-    env_logger::init();
+fn main() -> Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .try_init()
+        .ok();
 
     let args = Arguments::parse();
-    let settings = config::retrieve_settings(args.config_file).unwrap();
+    let settings = config::retrieve_settings(args.config_file)?;
 
     info!("loaded settings: {:?}", settings);
 
     let (tx_ping, rx_ping): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(32);
     let (tx_alert, rx_alert): (Sender<Alert>, Receiver<Alert>) = mpsc::channel();
-    let notifier_set = build_notifier_set(&settings).unwrap();
+    let notifier_set = build_notifier_set(&settings)?;
 
     run_alerter_thread(rx_alert, notifier_set);
     run_ping_receiver_thread(rx_ping, tx_alert, settings.clone());
@@ -102,6 +99,8 @@ fn main() {
         .block_on(async move {
             serve_api(args.listen_addr.unwrap_or(String::from("0.0.0.0:3030")), tx_ping).await;
         });
+
+    Ok(())
 }
 
 fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notifier>>) {

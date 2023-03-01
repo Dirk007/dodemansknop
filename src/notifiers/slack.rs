@@ -1,3 +1,4 @@
+use anyhow::Result;
 use log::debug;
 use reqwest::{blocking::Client, Method};
 use serde::Serialize;
@@ -31,7 +32,7 @@ impl SlackNotifier {
 }
 
 impl Notifier for SlackNotifier {
-    fn notify_failure(&self, alert: Alert) -> Result<(), &'static str> {
+    fn notify_failure(&self, alert: Alert) -> Result<()> {
         let body = json!({
             "attachments": [{
                 "color": self.color,
@@ -48,7 +49,7 @@ impl Notifier for SlackNotifier {
             }]
         });
 
-        let req = self.client.request(Method::POST, &self.url).json(&body).build().unwrap();
+        let req = self.client.request(Method::POST, &self.url).json(&body).build()?;
 
         debug!("executing request: {:?}", req);
 
