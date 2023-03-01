@@ -1,4 +1,4 @@
-use config::{Config, File, ConfigError, Environment};
+use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -10,7 +10,7 @@ pub struct Settings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct NotifierSettings {
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     pub notifier_type: String,
     pub webhook: Option<WebhookSettings>,
     pub slack: Option<SlackSettings>,

@@ -1,6 +1,5 @@
 use log::debug;
-use reqwest::blocking::Client;
-use reqwest::Method;
+use reqwest::{blocking::Client, Method};
 use serde::Serialize;
 use serde_json::json;
 
@@ -49,11 +48,7 @@ impl Notifier for SlackNotifier {
             }]
         });
 
-        let req = self.client
-            .request(Method::POST, &self.url)
-            .json(&body)
-            .build()
-            .unwrap();
+        let req = self.client.request(Method::POST, &self.url).json(&body).build().unwrap();
 
         debug!("executing request: {:?}", req);
 

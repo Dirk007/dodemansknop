@@ -1,32 +1,40 @@
 extern crate chrono;
 extern crate timer;
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::mpsc::{Receiver, SyncSender, Sender};
-use std::sync::{mpsc};
-use std::thread;
-use clap::Parser;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{
+        mpsc,
+        mpsc::{Receiver, Sender, SyncSender},
+    },
+    thread,
+};
 
+use clap::Parser;
 use log::{debug, info, warn};
 use timer::Guard;
 use warp::Filter;
 
-use crate::config::{NotifierSettings, Settings};
-use crate::notifier::{NoOpNotifier, Notifier, Alert};
-use crate::notifiers::webhook::WebhookNotifier;
-use crate::notifiers::slack::SlackNotifier;
+use crate::{
+    config::{NotifierSettings, Settings},
+    notifier::{Alert, NoOpNotifier, Notifier},
+    notifiers::{slack::SlackNotifier, webhook::WebhookNotifier},
+};
 
 mod notifier;
 
-mod notifiers { pub mod webhook; pub mod slack; }
+mod notifiers {
+    pub mod slack;
+    pub mod webhook;
+}
 
 mod config;
 
 #[derive(Parser, Default, Debug)]
-#[command(author = "Martin Helmich <m.helmich@mittwald.de>", version, about="A simple dead mans switch")]
+#[command(author = "Martin Helmich <m.helmich@mittwald.de>", version, about = "A simple dead mans switch")]
 struct Arguments {
-    #[arg(short, long="config")]
+    #[arg(short, long = "config")]
     /// Path to the configuration file
     config_file: Option<String>,
 
@@ -41,9 +49,7 @@ fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> 
     for notifier_setting in cfx.notifiers.iter() {
         match build_notifier(notifier_setting) {
             Ok(notifier) => notifiers.push(notifier),
-            Err(e) => {
-                return Err(format!("failed to build notifier: {}", e))
-            },
+            Err(e) => return Err(format!("failed to build notifier: {}", e)),
         }
     }
 
@@ -53,28 +59,24 @@ fn build_notifier_set(cfx: &Settings) -> Result<Vec<Box<dyn Notifier>>, String> 
 fn build_notifier(cfg: &NotifierSettings) -> Result<Box<dyn Notifier>, String> {
     match cfg.notifier_type.as_str() {
         "webhook" => match cfg.webhook {
-            Some(ref wh) => Ok(
-                Box::new(WebhookNotifier::new(
-                    wh.url.clone(),
-                    wh.method.clone(),
-                    wh.body.clone(),
-                    wh.headers.clone().unwrap_or(vec![])
-                )),
-            ),
+            Some(ref wh) => Ok(Box::new(WebhookNotifier::new(
+                wh.url.clone(),
+                wh.method.clone(),
+                wh.body.clone(),
+                wh.headers.clone().unwrap_or(vec![]),
+            ))),
             None => Err("no webhook settings found".to_string()),
         },
         "slack" => match cfg.slack {
-            Some(ref wh) => Ok(
-                Box::new(SlackNotifier::new(
-                    wh.url.clone(),
-                    wh.icon_emoji.clone(),
-                    wh.color.clone(),
-                )),
-            ),
+            Some(ref wh) => Ok(Box::new(SlackNotifier::new(
+                wh.url.clone(),
+                wh.icon_emoji.clone(),
+                wh.color.clone(),
+            ))),
             None => Err("no slack settings found".to_string()),
         },
         "noop" => Ok(Box::new(NoOpNotifier {})),
-        t => Err(format!("unsupported notifier: {}", t))
+        t => Err(format!("unsupported notifier: {}", t)),
     }
 }
 
@@ -103,21 +105,19 @@ fn main() {
 }
 
 fn run_alerter_thread(rx_alert: Receiver<Alert>, notifier_set: Vec<Box<dyn Notifier>>) {
-    thread::spawn(move || {
-        loop {
-            let r = rx_alert.recv();
-            if r.is_err() {
-                warn!("error while receiving alert: {}", r.err().unwrap());
-                continue;
-            }
+    thread::spawn(move || loop {
+        let r = rx_alert.recv();
+        if r.is_err() {
+            warn!("error while receiving alert: {}", r.err().unwrap());
+            continue;
+        }
 
-            let alert = r.unwrap();
+        let alert = r.unwrap();
 
-            for notifier in notifier_set.iter() {
-                match notifier.notify_failure(alert.clone()) {
-                    Ok(_) => info!("failure notified"),
-                    Err(e) => warn!("error while notifying about failure: {}", e)
-                }
+        for notifier in notifier_set.iter() {
+            match notifier.notify_failure(alert.clone()) {
+                Ok(_) => info!("failure notified"),
+                Err(e) => warn!("error while notifying about failure: {}", e),
             }
         }
     });
@@ -144,18 +144,19 @@ fn run_ping_receiver_thread(rx_ping: Receiver<String>, tx_alert: Sender<Alert>, 
 
             debug!("received ping for {}; timeout is {}", id, delay);
 
-            active_timers.insert(id, timer.schedule_with_delay(delay, move || {
-                info!("missed ping for {}; scheduling alert", idc);
+            active_timers.insert(
+                id,
+                timer.schedule_with_delay(delay, move || {
+                    info!("missed ping for {}; scheduling alert", idc);
 
-                let alert = Alert{
-                    id: idc.clone(),
-                };
+                    let alert = Alert { id: idc.clone() };
 
-                match tx_cpy.send(alert) {
-                    Ok(_) => debug!("alert scheduled for {}", idc),
-                    Err(e) => warn!("error while scheduling alert: {}", e)
-                }
-            }));
+                    match tx_cpy.send(alert) {
+                        Ok(_) => debug!("alert scheduled for {}", idc),
+                        Err(e) => warn!("error while scheduling alert: {}", e),
+                    }
+                }),
+            );
         }
     });
 }
@@ -171,8 +172,7 @@ async fn serve_api(listen_addr: String, tx_ping: SyncSender<String>) {
 }
 
 mod filters {
-    use std::convert::Infallible;
-    use std::sync::mpsc::SyncSender;
+    use std::{convert::Infallible, sync::mpsc::SyncSender};
 
     use warp::Filter;
 
@@ -182,27 +182,24 @@ mod filters {
         ping(tx_ping).or(health())
     }
 
-    pub fn ping(ping_tx: SyncSender<String>) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+    pub fn ping(ping_tx: SyncSender<String>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("ping" / String)
             .and(warp::post())
             .and(with_ping_tx(ping_tx))
             .and_then(handlers::ping)
     }
 
-    pub fn health() -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
-        warp::path!("health")
-            .and(warp::get())
-            .and_then(handlers::health)
+    pub fn health() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+        warp::path!("health").and(warp::get()).and_then(handlers::health)
     }
 
-    fn with_ping_tx(tx: SyncSender<String>) -> impl Filter<Extract=(SyncSender<String>, ), Error=Infallible> + Clone {
+    fn with_ping_tx(tx: SyncSender<String>) -> impl Filter<Extract = (SyncSender<String>,), Error = Infallible> + Clone {
         warp::any().map(move || tx.clone())
     }
 }
 
 mod handlers {
-    use std::convert::Infallible;
-    use std::sync::mpsc::SyncSender;
+    use std::{convert::Infallible, sync::mpsc::SyncSender};
 
     use log::warn;
     use warp::http::StatusCode;
